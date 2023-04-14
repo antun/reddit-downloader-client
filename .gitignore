@@ -1,2 +1,12 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
 .env
 dist/
+cache/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+

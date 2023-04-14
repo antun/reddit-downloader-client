@@ -1,7 +1,16 @@
 # Reddit Comment Downloader
-This code downloads top comments from Reddit.
+Client for downloading comments from Reddit's API. It caches the Reddit API's JSON responses locally for efficiency.
+
+## Instructions
+Run `python download_commments.py`. The output will be in `dist/`. The Reddit API responses are cached in `cache/`.
 
 # Setup
+
+## Python and Dependencies
+
+Install the version of Python in `.python-version`.
+
+Run `pip install -r requirements.txt` to install dependencies.
 
 ## Reddit Setup
 You need to create your own app on Reddit before using this. Go here to do that: https://www.reddit.com/prefs/apps
@@ -19,10 +28,6 @@ PASSWORD=your_reddit_password
 ```
 
 The `CLIENT_ID` is the alphanumeric string under your app in Reddit. The secret is available when you first create the app, and when you go to edit it.
-
-### Install dependencies
-
-Run `pip install -r requirements.txt` to install dependencies.
 
 # Appendix
 

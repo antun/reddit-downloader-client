@@ -1,64 +1,9 @@
-from oauthlib.oauth2 import LegacyApplicationClient
-from requests_oauthlib import OAuth2Session
-from pathlib import Path
-import json
-import time
 import string
 import re
-import time
 import csv
-from dotenv import load_dotenv
-import os
+import reddit_client_lib
+from pathlib import Path
 
-# Get secrets from .env file
-load_dotenv()
-client_id = os.getenv('CLIENT_ID')
-client_secret = os.getenv('CLIENT_SECRET')
-username = os.getenv('USERNAME')
-password = os.getenv('PASSWORD')
-
-token_cache_path = './dist/token.json'
-
-access_token_url = 'https://www.reddit.com/api/v1/access_token'
-
-
-def cache_token(token, token_cache_path):
-    Path('./dist').mkdir(parents=True, exist_ok=True)
-    f = open(token_cache_path, 'w')
-    f.write(json.dumps(token))
-    f.close()
-
-def read_token(token_cache_path):
-    try:
-        f = open(token_cache_path, 'r')
-        data = json.load(f)
-        f.close()
-        return data
-    except:
-        return {'expires_at': 0}
-
-oauth = OAuth2Session(client=LegacyApplicationClient(client_id=client_id))
-token = {}
-comment_table = []
-cached_token = read_token(token_cache_path)
-epoch_time = int(time.time())
-
-print(epoch_time, cached_token['expires_at'])
-
-if (epoch_time >= cached_token['expires_at']):
-    print('old token')
-    token = oauth.fetch_token(token_url=access_token_url,
-            username=username, password=password, client_id=client_id,
-            client_secret=client_secret,
-            header={'User-agent': 'my-app 0.1'})
-    # Looks like:
-    # {'access_token': '221585764340-xvPGJ2uoytwpps1btV04z92FriYtkA',
-    # 'token_type': 'bearer', 'expires_in': 86400, 'scope': ['*'],
-    # 'expires_at': 1680732511.693944}
-    cache_token(token, token_cache_path)
-else:
-    print('good token')
-    token = cached_token
     
 def strip_punctuation(s):
     return s.translate(str.maketrans('', '', string.punctuation))
@@ -70,17 +15,19 @@ def remove_escaped_newlines(s):
     return s.replace('\n', ' ')
 
 
-def get_comments_for_post(post_id):
-    client = OAuth2Session(client_id, token=token)
-    time.sleep(1)
-    url = f'https://oauth.reddit.com/r/worldnews/comments/{post_id}?threaded=false&sort=top'
-    r = client.get(url, headers = {'User-agent': 'my-app 0.1'})
-    # print(dir(r))
-    # print(r.status_code, r.reason)
-    if (r.status_code == 200):
-        post_id = r.json()[0]['data']['children'][0]['data']['name']
-        comments = r.json()[1]['data']['children']
+def get_top_responses_for_post(post_id, subreddit):
+    print(f'Getting comments for {post_id} in {subreddit}')
+    url = f'https://oauth.reddit.com/r/{subreddit}/comments/{post_id}?threaded=false&sort=top'
+
+    cache_path = f'r/{subreddit}/comments/{post_id}'
+    status_code,data = reddit_client_lib.get_and_cache(url, cache_path)
+
+    if (status_code in [200, 304]):
+        post_id = data[0]['data']['children'][0]['data']['name']
+        comments = data[1]['data']['children']
         all_comments = {}
+        # Need all comments first since we don't now if a top response will be
+        # a reply to a top comment
         for comment in comments:
             if comment['kind'] == 't1':
                 raw_body = comment['data']['body']
@@ -89,31 +36,38 @@ def get_comments_for_post(post_id):
                 body = remove_escaped_quotes(body)
                 body = remove_escaped_newlines(body)
                 all_comments[comment['data']['name']] = body
+        # Just get the top 20
+        comment_table = []
         for comment in comments[:20]:
             if comment['data']['parent_id'] != post_id and comment['kind'] == 't1':
                 response = all_comments[comment['data']['name']]
+                # For now, just deal with short response comments
                 if (len(response) < 256):
                     original = all_comments[ comment['data']['parent_id'] ]
                     row = [original, response]
                     comment_table.append(row)
+        return comment_table
                    
 
-def get_top_posts():
-    # API Doc: https://www.reddit.com/dev/api/#GET_{sort}
-    url = 'https://oauth.reddit.com/r/worldnews/top/.json?count=2'
-    client = OAuth2Session(client_id, token=token)
-    r = client.get(url, headers = {'User-agent': 'my-app 0.1'})
-    if (r.status_code == 200):
-        for post in r.json()['data']['children']:
-            id = post['data']['id']
-            get_comments_for_post(id)
-        print(comment_table)
-        with open('dist/comments.csv', 'w', encoding='UTF8', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Prompt', 'Response'])
-            writer.writerows(comment_table)
+def get_top_posts_in(subreddits, num_posts):
+    for subreddit in subreddits:
+        # API Doc: https://www.reddit.com/dev/api/#GET_{sort}
+        url = f'https://oauth.reddit.com/r/{subreddit}/top/.json?limit={num_posts}'
+        print(f'Loading top posts from {subreddit}');
+        cache_path = f'r/{subreddit}/top'
+        status_code,data = reddit_client_lib.get_and_cache(url, cache_path)
 
+        if (status_code in [200, 304]):
+            for post in data['data']['children']:
+                id = post['data']['id']
+                comment_table = get_top_responses_for_post(id, subreddit)
+            Path('./dist').mkdir(parents=True, exist_ok=True)
+            with open('dist/comments.csv', 'w', encoding='UTF8', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Prompt', 'Response'])
+                writer.writerows(comment_table)
 
-get_top_posts()
+subreddits = ['worldnews']
+get_top_posts_in(subreddits, 3)
 
 
